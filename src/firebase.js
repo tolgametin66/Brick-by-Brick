@@ -2,7 +2,7 @@ import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
-// PASTE YOUR FIREBASE CONFIG HERE (from Step 2)
+// PASTE YOUR FIREBASE CONFIG HERE (from Firebase Console)
 const firebaseConfig = {
   apiKey: "AIzaSyAtNLsokzaWbHFaMmvAIgKXOR7dqxlVUsk",
   authDomain: "brick-by-brick-4bacd.firebaseapp.com",
