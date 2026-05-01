@@ -295,12 +295,9 @@ function AuthScreen() {
   return (
     <div className="dot-grid min-h-screen flex flex-col items-center justify-center px-5 py-10">
       <div className="w-full max-w-sm" style={{ animation: 'slideUp 280ms cubic-bezier(0.16, 1, 0.3, 1)' }}>
-        <div className="flex justify-center mb-2">
+        <div className="flex justify-center mb-12">
           <Logo size="lg" />
         </div>
-        <p className="text-center text-[10px] uppercase tracking-[0.3em] text-stone-600 font-mono mb-12">
-          notes, nested
-        </p>
 
         <div className="flex justify-center gap-6 mb-8 font-mono text-[10px] uppercase tracking-[0.25em]">
           <button
@@ -384,16 +381,20 @@ function NotesApp({ user, onSignOut }) {
   const [autoFocusId, setAutoFocusId] = useState(null);
 
   // Real-time Firestore subscription
+  const isLocalUpdate = useRef(false);
   useEffect(() => {
     const unsubscribe = onSnapshot(
       doc(firestore, 'notes', user.uid),
       (snap) => {
-        if (snap.exists()) {
-          setTree(snap.data().tree || seedTree());
-        } else {
-          setTree(seedTree());
+        // Only update from remote if we're not in the middle of a local edit
+        if (!isLocalUpdate.current) {
+          if (snap.exists()) {
+            setTree(snap.data().tree || seedTree());
+          } else {
+            setTree(seedTree());
+          }
+          setTreeLoaded(true);
         }
-        setTreeLoaded(true);
       },
       (error) => {
         console.error('Firestore error:', error);
@@ -408,14 +409,28 @@ function NotesApp({ user, onSignOut }) {
   const saveTimeoutRef = useRef(null);
   useEffect(() => {
     if (!treeLoaded) return;
+    
+    // Mark that we're making a local update
+    isLocalUpdate.current = true;
+    
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(() => {
       setDoc(doc(firestore, 'notes', user.uid), {
         tree,
         updatedAt: serverTimestamp(),
-      }).catch(err => console.error('Save failed:', err));
+      }).then(() => {
+        // Allow remote updates again after save completes
+        setTimeout(() => {
+          isLocalUpdate.current = false;
+        }, 100);
+      }).catch(err => {
+        console.error('Save failed:', err);
+        isLocalUpdate.current = false;
+      });
     }, 400);
-    return () => { if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); };
+    return () => { 
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); 
+    };
   }, [tree, treeLoaded, user.uid]);
 
   const visible = useMemo(() => computeVisibility(tree, search), [tree, search]);
@@ -454,7 +469,13 @@ function NotesApp({ user, onSignOut }) {
   const confirmDelete = id => {
     setTree(t => {
       const [next] = extractNode(t, id);
-      return next.length === 0 ? [createNode()] : next;
+      const result = next.length === 0 ? [createNode()] : next;
+      // Force an immediate save after deletion
+      setDoc(doc(firestore, 'notes', user.uid), {
+        tree: result,
+        updatedAt: serverTimestamp(),
+      }).catch(err => console.error('Delete save failed:', err));
+      return result;
     });
     setPendingDelete(null);
   };
@@ -711,7 +732,8 @@ function BulletNode({
 
   useEffect(() => {
     if (!textRef.current || !isVisible) return;
-    if (textRef.current.innerText !== (node.text || '')) {
+    // Only update if the element is not currently focused (prevents clearing while typing)
+    if (document.activeElement !== textRef.current && textRef.current.innerText !== (node.text || '')) {
       textRef.current.innerText = node.text || '';
     }
     if (autoFocusId === node.id) {
